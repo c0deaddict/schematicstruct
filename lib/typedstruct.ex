@@ -1,6 +1,8 @@
 defmodule TypedStruct do
   @accumulating_attrs [:ts_struct, :ts_types, :ts_enforce_keys, :ts_fields]
 
+  import Schematic
+
   @doc false
   defmacro __using__(_) do
     quote do
@@ -17,6 +19,10 @@ defmodule TypedStruct do
       {:ok, struct} -> {:ok, struct}
     end
   end
+
+  def neg_integer(), do: all([int(), raw(fn i -> i < 0 end, message: "must be <0")])
+  def non_neg_integer(), do: all([int(), raw(fn i -> i >= 0 end, message: "must be >=0")])
+  def pos_integer(), do: all([int(), raw(fn i -> i > 0 end, message: "must be >0")])
 
   @doc """
   Defines a typed struct.
@@ -38,16 +44,6 @@ defmodule TypedStruct do
       end
   """
   defmacro typedstruct(do: block) do
-    ast = TypedStruct.__typedstruct__(block)
-
-    quote do
-      # Create a lexical scope.
-      (fn -> unquote(ast) end).()
-    end
-  end
-
-  @doc false
-  def __typedstruct__(block) do
     quote do
       Enum.each(unquote(@accumulating_attrs), fn attr ->
         Module.register_attribute(__MODULE__, attr, accumulate: true)
@@ -105,7 +101,7 @@ defmodule TypedStruct do
   end
 
   @doc false
-  def __field__(name, type, opts, %Macro.Env{module: mod} = env) when is_atom(name) do
+  def __field__(name, type, opts, %Macro.Env{module: mod}) when is_atom(name) do
     if mod |> Module.get_attribute(:ts_struct) |> Keyword.has_key?(name) do
       raise ArgumentError, "the field #{inspect(name)} is already set"
     end
@@ -118,10 +114,9 @@ defmodule TypedStruct do
     Module.put_attribute(mod, :ts_types, {name, type_for(type, nullable?)})
     if enforce?, do: Module.put_attribute(mod, :ts_enforce_keys, name)
 
-    json = Keyword.get_lazy(opts, :json, fn () -> name |> to_string() |> Recase.to_camel() end)
-    schema = Keyword.get_lazy(opts, :schema, fn () -> derive_schema(type, nullable?) end)
+    json = Keyword.get_lazy(opts, :json, fn -> name |> to_string() |> Recase.to_camel() end)
+    schema = Keyword.get_lazy(opts, :schema, fn -> derive_schema(type, nullable?) end)
 
-    # schema = quote(do: int())
     Module.put_attribute(mod, :ts_fields, {{json, name}, schema})
   end
 
@@ -129,7 +124,6 @@ defmodule TypedStruct do
     raise ArgumentError, "a field name must be an atom, got #{inspect(name)}"
   end
 
-  # Makes the type nullable if the key is not enforced.
   defp type_for(type, false), do: type
   defp type_for(type, _), do: quote(do: unquote(type) | nil)
 
@@ -138,10 +132,48 @@ defmodule TypedStruct do
     if nullable, do: {:nullable, [], [schema]}, else: schema
   end
 
-  defp derive_schema({:boolean, _, _}), do: quote do: bool()
-  defp derive_schema({:non_neg_integer, _, _}), do: quote do: int()  # TODO: guarantee positive integer?
+  # Literals
+  defp derive_schema(v) when is_number(v) or is_boolean(v) or is_atom(v) or is_bitstring(v), do: v
+
+  # Primitive types
+  defp derive_schema({:atom, _, []}), do: quote(do: atom())
+  defp derive_schema({:any, _, []}), do: quote(do: any())
+  defp derive_schema({:boolean, _, []}), do: quote(do: bool())
+  defp derive_schema({:float, _, []}), do: quote(do: float())
+  defp derive_schema({:integer, _, []}), do: quote(do: int())
+  defp derive_schema({:neg_integer, _, []}), do: quote(do: TypedStruct.neg_integer())
+  defp derive_schema({:non_neg_integer, _, []}), do: quote(do: TypedStruct.non_neg_integer())
+  defp derive_schema({:pos_integer, _, []}), do: quote(do: TypedStruct.pos_integer())
+
+  # String.t() => str()
+  # Module.t() => Module.schematic()
+  defp derive_schema({{:., _, [{:__aliases__, _, [module]}, :t]}, _, []}) when is_atom(module) do
+    case module do
+      :String -> quote do: str()
+      _ -> quote do: unquote(module).schematic()
+    end
+  end
+
+  # [type] => list(type)
+  # list(type) => list(type)
+  defp derive_schema([type]), do: derive_list(type)
+  defp derive_schema({:list, _, [type]}), do: derive_list(type)
+
+  # a | b => oneof([a, b])
+  defp derive_schema({:|, _, types}) do
+    {:oneof, [], [Enum.map(types, &derive_schema/1)]}
+  end
+
+  # NOTE: this captures any unmatched type functions, as they are in AST: {:fun, [], []}
+  # {a, b} => tuple([a, b])
+  defp derive_schema(type) when is_tuple(type) do
+    {:tuple, [], [type |> Tuple.to_list() |> Enum.map(&derive_schema/1)]}
+  end
+
   defp derive_schema(type) do
     IO.inspect(type)
-    quote do: int()
+    quote do: any()
   end
+
+  defp derive_list(type), do: {:list, [], [derive_schema(type)]}
 end

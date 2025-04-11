@@ -24,18 +24,8 @@ defmodule Schematicstruct do
       field :age, non_neg_integer(), nullable: true
       field :happy?, boolean(), default: false
       field :phone, String.t()
-    end
-  end
-
-  defmodule Explicit do
-    import Schematic
-
-    defstruct [:name]
-
-    def schematic() do
-      schema(__MODULE__, %{
-        name: str()
-      })
+      field :intlist, [integer() | float()]
+      field :tuple, :ok | {:error, atom()}
     end
   end
 end
