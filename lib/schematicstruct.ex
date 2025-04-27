@@ -4,6 +4,7 @@ defmodule SchematicStruct do
   """
 
   # TODO: write tests
+  # test nullable fields are optional
 
   @accumulating_attrs [:ss_struct, :ss_types, :ss_enforce_keys, :ss_fields]
 
@@ -31,7 +32,7 @@ defmodule SchematicStruct do
   def pos_integer(), do: all([int(), raw(fn i -> i > 0 end, message: "must be >0")])
 
   @doc """
-  Defines a typed struct.
+  Defines a schematic struct.
 
   Inside a `typedstruct` block, each field is defined through the `field/2`
   macro.
@@ -41,10 +42,10 @@ defmodule SchematicStruct do
       defmodule MyStruct do
         use SchematicStruct
 
-        typedstruct do
+        schematic_struct do
           field :field_one, String.t()
-          field :field_two, integer(), nullable: true
-          field :field_three, boolean(), nullable: true
+          field :field_two, integer(), nullable: true, json: "fieldTWO"
+          field :field_three, String.t(), schema: oneof(["true", "false"])
           field :field_four, atom(), default: :hey
         end
       end
@@ -86,7 +87,7 @@ defmodule SchematicStruct do
   end
 
   @doc """
-  Defines a field in a typed struct.
+  Defines a field in a schematic struct.
 
   ## Example
 
@@ -101,6 +102,8 @@ defmodule SchematicStruct do
     * `schema` - schematic schema, default is derived from type (if possible)
   """
   defmacro field(name, type, opts \\ []) do
+    opts = opts |> Keyword.replace(:schema, &Macro.escape(&1))
+
     quote bind_quoted: [name: name, type: Macro.escape(type), opts: opts] do
       SchematicStruct.__field__(name, type, opts, __ENV__)
     end
@@ -123,7 +126,18 @@ defmodule SchematicStruct do
     json = Keyword.get_lazy(opts, :json, fn -> name |> to_string() |> Recase.to_camel() end)
     schema = Keyword.get_lazy(opts, :schema, fn -> derive_schema(type, nullable?) end)
 
-    Module.put_attribute(mod, :ss_fields, {{json, name}, schema})
+    key = {json, name}
+
+    key =
+      if nullable? do
+        quote bind_quoted: [key: key] do
+          optional(key)
+        end
+      else
+        key
+      end
+
+    Module.put_attribute(mod, :ss_fields, {key, schema})
   end
 
   def __field__(name, _type, _opts, _env) do
@@ -156,7 +170,8 @@ defmodule SchematicStruct do
   defp derive_schema({{:., _, [{:__aliases__, _, [module]}, :t]}, _, []}) when is_atom(module) do
     case module do
       :String -> quote do: str()
-      _ -> quote do: unquote(module).schematic()
+      :Date -> quote do: date()
+      _ -> quote do: unquote({:__aliases__, [], [module]}).schematic()
     end
   end
 
@@ -170,6 +185,7 @@ defmodule SchematicStruct do
     {:oneof, [], [Enum.map(types, &derive_schema/1)]}
   end
 
+  # TBD: maybe don't auto convert this?
   # NOTE: this captures any unmatched type functions, as they are in AST: {:fun, [], []}
   # {a, b} => tuple([a, b])
   defp derive_schema(type) when is_tuple(type) do
