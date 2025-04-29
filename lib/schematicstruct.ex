@@ -102,7 +102,10 @@ defmodule SchematicStruct do
     * `schema` - schematic schema, default is derived from type (if possible)
   """
   defmacro field(name, type, opts \\ []) do
-    opts = opts |> Keyword.replace(:schema, &Macro.escape(&1))
+    opts = case Keyword.get(opts, :schema) do
+      nil -> opts
+      schema -> Keyword.put(opts, :schema, Macro.escape(schema))
+    end
 
     quote bind_quoted: [name: name, type: Macro.escape(type), opts: opts] do
       SchematicStruct.__field__(name, type, opts, __ENV__)
@@ -129,7 +132,7 @@ defmodule SchematicStruct do
     key = {json, name}
 
     key =
-      if nullable? do
+      if not enforce? do
         quote bind_quoted: [key: key] do
           optional(key)
         end
