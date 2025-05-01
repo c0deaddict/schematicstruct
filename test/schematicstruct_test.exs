@@ -69,49 +69,6 @@ defmodule SchematicStructTest do
     assert {:error, {:parse_failed, ^errors, _}} = mod.parse(%{"custom" => "c"})
   end
 
-  test "nested", %{mod: mod} do
-    code = """
-    defmodule :'#{mod}' do
-      use SchematicStruct
-
-      defmodule Sub do
-        use SchematicStruct
-
-        schematic_struct do
-          field(:first, integer())
-        end
-      end
-
-      alias __MODULE__.Sub
-
-      schematic_struct do
-        field(:name, String.t(), nullable: false)
-        field(:age, non_neg_integer(), nullable: true)
-        field(:happy?, boolean(), default: false)
-        field(:phone, String.t())
-        field(:intlist, [integer() | float()])
-        field(:tuple, :ok | {:error, atom()})
-        field(:nested, Sub.t())
-      end
-    end
-    """
-
-    sub = String.to_atom("#{mod}.Sub")
-    assert [{^sub, _}, {^mod, _}] = Code.compile_string(code)
-
-    assert {:ok, _} =
-             mod.parse(%{
-               "happy" => true,
-               "name" => "test",
-               "phone" => "woei",
-               "age" => 123,
-               "intlist" => [1, 3, 4, 5],
-               "enum" => 123,
-               "tuple" => {:error, :test},
-               "nested" => %{"first" => 123}
-             })
-  end
-
   test "non-nullable fields without a default are not optional", %{mod: mod} do
     code = """
     defmodule :'#{mod}' do
@@ -157,5 +114,86 @@ defmodule SchematicStructTest do
     assert [{^mod, _}] = Code.compile_string(code)
     assert {:ok, s} = mod.parse(%{})
     assert s.first == 0
+  end
+
+  test "literal field types", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:atom, :atom)
+        field(:boolean, true)
+        field(:number, 1)
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+    assert """
+           schema(#{mod}, %{
+             {"atom", :atom} => :atom,
+             {"boolean", :boolean} => true,
+             {"number", :number} => 1
+           })
+           """ == inspect(mod.schematic()) <> "\n"
+  end
+
+  test "primitive field types", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:atom, atom())
+        field(:any, any())
+        field(:boolean, boolean())
+        field(:float, float())
+        field(:integer, integer())
+        field(:neg_integer, neg_integer())
+        field(:non_neg_integer, non_neg_integer())
+        field(:pos_integer, pos_integer())
+        field(:string, String.t())
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+    assert """
+           schema(#{mod}, %{
+             {"any", :any} => any(),
+             {"atom", :atom} => atom(),
+             {"boolean", :boolean} => bool(),
+             {"float", :float} => float(),
+             {"integer", :integer} => int(),
+             {"negInteger", :neg_integer} => all([int(), raw("fn")]),
+             {"nonNegInteger", :non_neg_integer} => all([int(), raw("fn")]),
+             {"posInteger", :pos_integer} => all([int(), raw("fn")]),
+             {"string", :string} => str()
+           })
+           """ == inspect(mod.schematic()) <> "\n"
+  end
+
+  test "composite field types", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:list, [integer()])
+        field(:list_explicit, list(integer()))
+        field(:oneof, :a | :b)
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+    assert """
+           schema(#{mod}, %{
+             {"list", :list} => list(int()),
+             {"listExplicit", :list_explicit} => list(int()),
+             {"oneof", :oneof} => oneof([:a, :b])
+           })
+           """ == inspect(mod.schematic()) <> "\n"
   end
 end

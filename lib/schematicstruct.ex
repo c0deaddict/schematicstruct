@@ -3,9 +3,6 @@ defmodule SchematicStruct do
   Based on https://github.com/saleyn/typedstruct
   """
 
-  # TODO: write tests
-  # test nullable fields are optional
-
   @accumulating_attrs [:ss_struct, :ss_types, :ss_enforce_keys, :ss_fields]
 
   import Schematic
