@@ -1,5 +1,6 @@
 defmodule SchematicStructTest do
   use ExUnit.Case
+  import Schematic
   doctest SchematicStruct
 
   defp purge(mod) do
@@ -130,13 +131,13 @@ defmodule SchematicStructTest do
     """
 
     assert [{^mod, _}] = Code.compile_string(code)
-    assert """
-           schema(#{mod}, %{
-             {"atom", :atom} => :atom,
-             {"boolean", :boolean} => true,
-             {"number", :number} => 1
-           })
-           """ == inspect(mod.schematic()) <> "\n"
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"atom", :atom} => :atom,
+               {"boolean", :boolean} => true,
+               {"number", :number} => 1
+             })
   end
 
   test "primitive field types", %{mod: mod} do
@@ -159,19 +160,19 @@ defmodule SchematicStructTest do
     """
 
     assert [{^mod, _}] = Code.compile_string(code)
-    assert """
-           schema(#{mod}, %{
-             {"any", :any} => any(),
-             {"atom", :atom} => atom(),
-             {"boolean", :boolean} => bool(),
-             {"float", :float} => float(),
-             {"integer", :integer} => int(),
-             {"negInteger", :neg_integer} => all([int(), raw("fn")]),
-             {"nonNegInteger", :non_neg_integer} => all([int(), raw("fn")]),
-             {"posInteger", :pos_integer} => all([int(), raw("fn")]),
-             {"string", :string} => str()
-           })
-           """ == inspect(mod.schematic()) <> "\n"
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"any", :any} => any(),
+               {"atom", :atom} => atom(),
+               {"boolean", :boolean} => bool(),
+               {"float", :float} => float(),
+               {"integer", :integer} => int(),
+               {"negInteger", :neg_integer} => SchematicStruct.neg_integer(),
+               {"nonNegInteger", :non_neg_integer} => SchematicStruct.non_neg_integer(),
+               {"posInteger", :pos_integer} => SchematicStruct.pos_integer(),
+               {"string", :string} => str()
+             })
   end
 
   test "composite field types", %{mod: mod} do
@@ -188,12 +189,92 @@ defmodule SchematicStructTest do
     """
 
     assert [{^mod, _}] = Code.compile_string(code)
-    assert """
-           schema(#{mod}, %{
-             {"list", :list} => list(int()),
-             {"listExplicit", :list_explicit} => list(int()),
-             {"oneof", :oneof} => oneof([:a, :b])
-           })
-           """ == inspect(mod.schematic()) <> "\n"
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"list", :list} => list(int()),
+               {"listExplicit", :list_explicit} => list(int()),
+               {"oneof", :oneof} => oneof([:a, :b])
+             })
   end
+
+  test "tuples are not automatically translated", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:first, {integer(), integer()})
+        field(:second, {integer(), integer()}, schema: tuple([int(), int()]))
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"first", :first} => any(),
+               {"second", :second} => tuple([int(), int()]),
+             })
+  end
+
+  test "nested field type", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      defmodule Sub do
+        use SchematicStruct
+
+        schematic_struct do
+          field(:first, integer())
+        end
+      end
+
+      alias __MODULE__.Sub
+
+      schematic_struct do
+        field(:nested, Sub.t())
+      end
+    end
+    """
+
+    sub = String.to_atom("#{mod}.Sub")
+    assert [{^sub, _}, {^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"nested", :nested} => schema(sub, %{{"first", :first} => int()})
+             })
+  end
+
+  test "nested with explicit module reference", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      defmodule Sub do
+        use SchematicStruct
+
+        schematic_struct do
+          field(:first, integer())
+        end
+      end
+
+      schematic_struct do
+        field(:nested, __MODULE__.Sub.t())
+      end
+    end
+    """
+
+    sub = String.to_atom("#{mod}.Sub")
+    assert [{^sub, _}, {^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"nested", :nested} => schema(sub, %{{"first", :first} => int()})
+             })
+  end
+
 end

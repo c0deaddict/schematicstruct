@@ -99,10 +99,11 @@ defmodule SchematicStruct do
     * `schema` - schematic schema, default is derived from type (if possible)
   """
   defmacro field(name, type, opts \\ []) do
-    opts = case Keyword.get(opts, :schema) do
-      nil -> opts
-      schema -> Keyword.put(opts, :schema, Macro.escape(schema))
-    end
+    opts =
+      case Keyword.get(opts, :schema) do
+        nil -> opts
+        schema -> Keyword.put(opts, :schema, Macro.escape(schema))
+      end
 
     quote bind_quoted: [name: name, type: Macro.escape(type), opts: opts] do
       SchematicStruct.__field__(name, type, opts, __ENV__)
@@ -167,11 +168,12 @@ defmodule SchematicStruct do
 
   # String.t() => str()
   # Module.t() => Module.schematic()
-  defp derive_schema({{:., _, [{:__aliases__, _, [module]}, :t]}, _, []}) when is_atom(module) do
+  # Fully.Qualified.Module.t() => Fully.Qualified.Module.schematic()
+  defp derive_schema({{:., _, [{:__aliases__, _, module}, :t]}, _, []}) do
     case module do
-      :String -> quote do: str()
-      :Date -> quote do: date()
-      _ -> quote do: unquote({:__aliases__, [], [module]}).schematic()
+      [:String] -> quote do: str()
+      [:Date] -> quote do: date()
+      _ -> quote do: unquote({:__aliases__, [], module}).schematic()
     end
   end
 
@@ -185,17 +187,12 @@ defmodule SchematicStruct do
     {:oneof, [], [Enum.map(types, &derive_schema/1)]}
   end
 
-  # TBD: maybe don't auto convert this?
-  # NOTE: this captures any unmatched type functions, as they are in AST: {:fun, [], []}
-  # {a, b} => tuple([a, b])
-  defp derive_schema(type) when is_tuple(type) do
-    {:tuple, [], [type |> Tuple.to_list() |> Enum.map(&derive_schema/1)]}
-  end
+  # NOTE: tuples types are explicitly not automatically translated to a schema, since capturing a tuple type here would also match function calls ({:fun, [], []}) and other AST constructs.
+  # defp derive_schema(type) when is_tuple(type) do
+  #   {:tuple, [], [type |> Tuple.to_list() |> Enum.map(&derive_schema/1)]}
+  # end
 
-  defp derive_schema(type) do
-    IO.inspect(type)
-    quote do: any()
-  end
+  defp derive_schema(_type), do: quote(do: any())
 
   defp derive_list(type), do: {:list, [], [derive_schema(type)]}
 end
