@@ -215,7 +215,7 @@ defmodule SchematicStructTest do
     assert mod.schematic() ==
              schema(mod, %{
                {"first", :first} => any(),
-               {"second", :second} => tuple([int(), int()]),
+               {"second", :second} => tuple([int(), int()])
              })
   end
 
@@ -277,4 +277,22 @@ defmodule SchematicStructTest do
              })
   end
 
+  test "map of key_type and value_type", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:first, %{integer() => String.t()})
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"first", :first} => map(keys: int(), values: str())
+             })
+  end
 end

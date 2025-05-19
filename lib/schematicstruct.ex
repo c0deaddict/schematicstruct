@@ -187,12 +187,22 @@ defmodule SchematicStruct do
     {:oneof, [], [Enum.map(types, &derive_schema/1)]}
   end
 
-  # NOTE: tuples types are explicitly not automatically translated to a schema, since capturing a tuple type here would also match function calls ({:fun, [], []}) and other AST constructs.
+  # %{key_type => value_type} => map(keys: key_type, values: value_type)
+  defp derive_schema({:%{}, _, [{key_type, value_type}]})
+       when not is_atom(key_type) and not is_bitstring(key_type) do
+    quote do
+      map(keys: unquote(derive_schema(key_type)), values: unquote(derive_schema(value_type)))
+    end
+  end
+
+  # NOTE: tuples types are NOT automatically translated to a schema, since
+  # capturing a tuple type here would also match function calls ({:fun, [], []})
+  # and potentially other AST constructs.
   # defp derive_schema(type) when is_tuple(type) do
   #   {:tuple, [], [type |> Tuple.to_list() |> Enum.map(&derive_schema/1)]}
   # end
 
-  defp derive_schema(_type), do: quote(do: any())
+  defp derive_schema(_type), do: {:any, [], []}
 
   defp derive_list(type), do: {:list, [], [derive_schema(type)]}
 end
