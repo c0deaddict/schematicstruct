@@ -126,6 +126,7 @@ defmodule SchematicStructTest do
         field(:atom, :atom)
         field(:boolean, true)
         field(:number, 1)
+        field(:null, nil)
       end
     end
     """
@@ -136,7 +137,8 @@ defmodule SchematicStructTest do
              schema(mod, %{
                {"atom", :atom} => :atom,
                {"boolean", :boolean} => true,
-               {"number", :number} => 1
+               {"number", :number} => 1,
+               {"null", :null} => nil
              })
   end
 
@@ -155,6 +157,7 @@ defmodule SchematicStructTest do
         field(:non_neg_integer, non_neg_integer())
         field(:pos_integer, pos_integer())
         field(:string, String.t())
+        field(:number, number())
       end
     end
     """
@@ -168,10 +171,11 @@ defmodule SchematicStructTest do
                {"boolean", :boolean} => bool(),
                {"float", :float} => float(),
                {"integer", :integer} => int(),
-               {"negInteger", :neg_integer} => SchematicStruct.neg_integer(),
-               {"nonNegInteger", :non_neg_integer} => SchematicStruct.non_neg_integer(),
-               {"posInteger", :pos_integer} => SchematicStruct.pos_integer(),
-               {"string", :string} => str()
+               {"neg_integer", :neg_integer} => SchematicStruct.neg_integer(),
+               {"non_neg_integer", :non_neg_integer} => SchematicStruct.non_neg_integer(),
+               {"pos_integer", :pos_integer} => SchematicStruct.pos_integer(),
+               {"string", :string} => str(),
+               {"number", :number} => oneof([int(), float()])
              })
   end
 
@@ -193,7 +197,7 @@ defmodule SchematicStructTest do
     assert mod.schematic() ==
              schema(mod, %{
                {"list", :list} => list(int()),
-               {"listExplicit", :list_explicit} => list(int()),
+               {"list_explicit", :list_explicit} => list(int()),
                {"oneof", :oneof} => oneof([:a, :b])
              })
   end
@@ -231,8 +235,6 @@ defmodule SchematicStructTest do
           field(:first, integer())
         end
       end
-
-      alias __MODULE__.Sub
 
       schematic_struct do
         field(:nested, Sub.t())
@@ -294,5 +296,93 @@ defmodule SchematicStructTest do
              schema(mod, %{
                {"first", :first} => map(keys: int(), values: str())
              })
+  end
+
+  test "custom transform function", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct, transform: &(&1 |> to_string() |> String.upcase())
+
+      schematic_struct do
+        field(:first, integer())
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"FIRST", :first} => int()
+             })
+  end
+
+  test "custom type rules", %{mod: mod} do
+    code = """
+    defmodule :"#{mod}" do
+      use SchematicStruct,
+        type_match: fn
+          {:custom, _, []} -> quote(do: int())
+          _ -> quote(do: any())
+        end
+
+      @type custom :: integer()
+
+      schematic_struct do
+        field(:first, custom())
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"first", :first} => int()
+             })
+  end
+
+  test "unrecognized types have schema any", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}'do
+      use SchematicStruct
+
+      @type custom :: integer()
+
+      schematic_struct do
+        field(:first, custom())
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"first", :first} => any()
+             })
+  end
+
+  test "raise exception on unrecognized type", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}'do
+      use SchematicStruct,
+        type_match: fn
+          type -> raise "undefined type in schematic_struct: \#{inspect(type)}"
+        end
+
+      @type custom :: integer()
+
+      schematic_struct do
+        field(:first, custom())
+      end
+    end
+    """
+
+    assert_raise RuntimeError,
+                 "undefined type in schematic_struct: {:custom, [line: 10, column: 19], []}",
+                 fn ->
+                   Code.compile_string(code)
+                 end
   end
 end

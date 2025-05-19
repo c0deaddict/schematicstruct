@@ -21,9 +21,8 @@ defmodule Schematicstruct.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:schematic, "0.4.0"},
-      {:schematic, github: "c0deaddict/schematic", branch: "main", override: true},
-      {:recase, "~> 0.7"},
+      # {:schematic, "0.5.2"},
+      {:schematic, github: "c0deaddict/schematic", branch: "main", override: true}
     ]
   end
 end

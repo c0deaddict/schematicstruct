@@ -4,14 +4,18 @@ defmodule SchematicStruct do
   """
 
   @accumulating_attrs [:ss_struct, :ss_types, :ss_enforce_keys, :ss_fields]
+  @other_attrs [:ss_transform, :ss_type_match]
 
   import Schematic
 
   @doc false
-  defmacro __using__(_) do
+  defmacro __using__(opts) do
     quote do
       import Schematic
       import SchematicStruct, only: [schematic_struct: 1]
+
+      Module.put_attribute(__MODULE__, :ss_transform, unquote(opts[:transform]))
+      Module.put_attribute(__MODULE__, :ss_type_match, unquote(opts[:type_match]))
 
       def parse(data), do: SchematicStruct.parse(data, __MODULE__)
     end
@@ -63,7 +67,10 @@ defmodule SchematicStruct do
 
       SchematicStruct.__schematic__(@ss_fields)
 
-      Enum.each(unquote(@accumulating_attrs), &Module.delete_attribute(__MODULE__, &1))
+      Enum.each(
+        unquote(@accumulating_attrs ++ @other_attrs),
+        &Module.delete_attribute(__MODULE__, &1)
+      )
     end
   end
 
@@ -124,8 +131,9 @@ defmodule SchematicStruct do
     Module.put_attribute(mod, :ss_types, {name, type_for(type, nullable?)})
     if enforce?, do: Module.put_attribute(mod, :ss_enforce_keys, name)
 
-    json = Keyword.get_lazy(opts, :json, fn -> name |> to_string() |> Recase.to_camel() end)
-    schema = Keyword.get_lazy(opts, :schema, fn -> derive_schema(type, nullable?) end)
+    transform = Module.get_attribute(mod, :ss_transform) || (&to_string/1)
+    json = Keyword.get_lazy(opts, :json, fn -> transform.(name) end)
+    schema = Keyword.get_lazy(opts, :schema, fn -> derive_schema(mod, type, nullable?) end)
 
     key = {json, name}
 
@@ -148,28 +156,37 @@ defmodule SchematicStruct do
   defp type_for(type, false), do: type
   defp type_for(type, _), do: quote(do: unquote(type) | nil)
 
-  defp derive_schema(type, nullable) do
-    schema = derive_schema(type)
+  defp derive_schema(mod, type, nullable) do
+    type_match = Module.get_attribute(mod, :ss_type_match)
+    schema = derive_schema(type_match, type)
     if nullable, do: {:nullable, [], [schema]}, else: schema
   end
 
   # Literals
-  defp derive_schema(v) when is_number(v) or is_boolean(v) or is_atom(v) or is_bitstring(v), do: v
+  defp derive_schema(_, nil), do: nil
+  defp derive_schema(_, v) when is_number(v), do: v
+  defp derive_schema(_, v) when is_boolean(v), do: v
+  defp derive_schema(_, v) when is_atom(v), do: v
+  defp derive_schema(_, v) when is_bitstring(v), do: v
 
   # Primitive types
-  defp derive_schema({:atom, _, []}), do: quote(do: atom())
-  defp derive_schema({:any, _, []}), do: quote(do: any())
-  defp derive_schema({:boolean, _, []}), do: quote(do: bool())
-  defp derive_schema({:float, _, []}), do: quote(do: float())
-  defp derive_schema({:integer, _, []}), do: quote(do: int())
-  defp derive_schema({:neg_integer, _, []}), do: quote(do: SchematicStruct.neg_integer())
-  defp derive_schema({:non_neg_integer, _, []}), do: quote(do: SchematicStruct.non_neg_integer())
-  defp derive_schema({:pos_integer, _, []}), do: quote(do: SchematicStruct.pos_integer())
+  defp derive_schema(_, {:atom, _, []}), do: quote(do: atom())
+  defp derive_schema(_, {:any, _, []}), do: quote(do: any())
+  defp derive_schema(_, {:boolean, _, []}), do: quote(do: bool())
+  defp derive_schema(_, {:float, _, []}), do: quote(do: float())
+  defp derive_schema(_, {:integer, _, []}), do: quote(do: int())
+  defp derive_schema(_, {:neg_integer, _, []}), do: quote(do: SchematicStruct.neg_integer())
+  defp derive_schema(_, {:number, _, []}), do: quote(do: oneof([int(), float()]))
+
+  defp derive_schema(_, {:non_neg_integer, _, []}),
+    do: quote(do: SchematicStruct.non_neg_integer())
+
+  defp derive_schema(_, {:pos_integer, _, []}), do: quote(do: SchematicStruct.pos_integer())
 
   # String.t() => str()
   # Module.t() => Module.schematic()
   # Fully.Qualified.Module.t() => Fully.Qualified.Module.schematic()
-  defp derive_schema({{:., _, [{:__aliases__, _, module}, :t]}, _, []}) do
+  defp derive_schema(_, {{:., _, [{:__aliases__, _, module}, :t]}, _, []}) do
     case module do
       [:String] -> quote do: str()
       [:Date] -> quote do: date()
@@ -179,19 +196,22 @@ defmodule SchematicStruct do
 
   # [type] => list(type)
   # list(type) => list(type)
-  defp derive_schema([type]), do: derive_list(type)
-  defp derive_schema({:list, _, [type]}), do: derive_list(type)
+  defp derive_schema(type_match, [type]), do: derive_list(type_match, type)
+  defp derive_schema(type_match, {:list, _, [type]}), do: derive_list(type_match, type)
 
   # a | b => oneof([a, b])
-  defp derive_schema({:|, _, types}) do
-    {:oneof, [], [Enum.map(types, &derive_schema/1)]}
+  defp derive_schema(type_match, {:|, _, types}) do
+    {:oneof, [], [Enum.map(types, &derive_schema(type_match, &1))]}
   end
 
   # %{key_type => value_type} => map(keys: key_type, values: value_type)
-  defp derive_schema({:%{}, _, [{key_type, value_type}]})
+  defp derive_schema(type_match, {:%{}, _, [{key_type, value_type}]})
        when not is_atom(key_type) and not is_bitstring(key_type) do
     quote do
-      map(keys: unquote(derive_schema(key_type)), values: unquote(derive_schema(value_type)))
+      map(
+        keys: unquote(derive_schema(type_match, key_type)),
+        values: unquote(derive_schema(type_match, value_type))
+      )
     end
   end
 
@@ -202,7 +222,8 @@ defmodule SchematicStruct do
   #   {:tuple, [], [type |> Tuple.to_list() |> Enum.map(&derive_schema/1)]}
   # end
 
-  defp derive_schema(_type), do: {:any, [], []}
+  defp derive_schema(nil, _type), do: {:any, [], []}
+  defp derive_schema(type_match, type), do: type_match.(type)
 
-  defp derive_list(type), do: {:list, [], [derive_schema(type)]}
+  defp derive_list(type_match, type), do: {:list, [], [derive_schema(type_match, type)]}
 end
