@@ -385,4 +385,29 @@ defmodule SchematicStructTest do
                    Code.compile_string(code)
                  end
   end
+
+  test "integer range", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}'do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:first, 1..10)
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() ==
+             schema(mod, %{
+               {"first", :first} => SchematicStruct.integer_range(1, 10)
+             })
+
+    assert {:ok, s} = mod.parse(%{"first" => 5})
+    assert s.first == 5
+
+    assert {:error, {:parse_failed, %{"first" => ["must be in range 1..10"]}, %{"first" => 11}}} =
+             mod.parse(%{"first" => 11})
+  end
 end

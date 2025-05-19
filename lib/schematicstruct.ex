@@ -32,6 +32,18 @@ defmodule SchematicStruct do
   def non_neg_integer(), do: all([int(), raw(fn i -> i >= 0 end, message: "must be >=0")])
   def pos_integer(), do: all([int(), raw(fn i -> i > 0 end, message: "must be >0")])
 
+  def integer_range(from, to),
+    do:
+      all([
+        int(),
+        raw(
+          fn
+            i -> i >= from and i <= to
+          end,
+          message: "must be in range #{from}..#{to}"
+        )
+      ])
+
   @doc """
   Defines a schematic struct.
 
@@ -175,13 +187,14 @@ defmodule SchematicStruct do
   defp derive_schema(_, {:boolean, _, []}), do: quote(do: bool())
   defp derive_schema(_, {:float, _, []}), do: quote(do: float())
   defp derive_schema(_, {:integer, _, []}), do: quote(do: int())
-  defp derive_schema(_, {:neg_integer, _, []}), do: quote(do: SchematicStruct.neg_integer())
+  defp derive_schema(_, {:neg_integer, _, []}), do: quote(do: neg_integer())
   defp derive_schema(_, {:number, _, []}), do: quote(do: oneof([int(), float()]))
+  defp derive_schema(_, {:non_neg_integer, _, []}), do: quote(do: non_neg_integer())
+  defp derive_schema(_, {:pos_integer, _, []}), do: quote(do: pos_integer())
 
-  defp derive_schema(_, {:non_neg_integer, _, []}),
-    do: quote(do: SchematicStruct.non_neg_integer())
-
-  defp derive_schema(_, {:pos_integer, _, []}), do: quote(do: SchematicStruct.pos_integer())
+  # Integer range
+  defp derive_schema(_, {:.., _, [from, to]}),
+    do: quote(do: integer_range(unquote(from), unquote(to)))
 
   # String.t() => str()
   # Module.t() => Module.schematic()
