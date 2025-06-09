@@ -410,4 +410,42 @@ defmodule SchematicStructTest do
     assert {:error, {:parse_failed, %{"first" => ["must be in range 1..10"]}, %{"first" => 11}}} =
              mod.parse(%{"first" => 11})
   end
+
+  test "nil fields are omitted in dump by default", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:first, integer())
+        field(:second, integer(), nullable: true)
+        field(:third, integer(), nullable: true, default: nil)
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+    assert {:ok, s = %{first: 1, second: nil, third: nil}} = mod.parse(%{"first" => 1})
+    assert {:ok, d = %{"first" => 1}} = mod.dump(s)
+    assert Map.has_key?(d, "second") == false
+    assert Map.has_key?(d, "third") == false
+  end
+
+  test "nil fields are included in dump by with option", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct, dump_nullable: true
+
+      schematic_struct do
+        field(:first, integer())
+        field(:second, integer(), nullable: true)
+        field(:third, integer(), nullable: true, default: nil)
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+    assert {:ok, s = %{first: 1, second: nil, third: nil}} = mod.parse(%{"first" => 1})
+    assert {:ok,  %{"first" => 1, "second" => nil, "third" => nil}} = mod.dump(s)
+  end
 end

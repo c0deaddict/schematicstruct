@@ -4,7 +4,7 @@ defmodule SchematicStruct do
   """
 
   @accumulating_attrs [:ss_struct, :ss_types, :ss_enforce_keys, :ss_fields]
-  @other_attrs [:ss_transform, :ss_type_match]
+  @other_attrs [:ss_opts]
 
   import Schematic
 
@@ -14,10 +14,10 @@ defmodule SchematicStruct do
       import Schematic
       import SchematicStruct, only: [schematic_struct: 1]
 
-      Module.put_attribute(__MODULE__, :ss_transform, unquote(opts[:transform]))
-      Module.put_attribute(__MODULE__, :ss_type_match, unquote(opts[:type_match]))
+      Module.put_attribute(__MODULE__, :ss_opts, unquote(opts))
 
       def parse(data), do: SchematicStruct.parse(data, __MODULE__)
+      def dump(data), do: SchematicStruct.dump(data, __MODULE__)
     end
   end
 
@@ -25,6 +25,13 @@ defmodule SchematicStruct do
     case Schematic.unify(module.schematic(), data) do
       {:error, err} -> {:error, {:parse_failed, err, data}}
       {:ok, struct} -> {:ok, struct}
+    end
+  end
+
+  def dump(input, module) do
+    case Schematic.dump(module.schematic(), input) do
+      {:ok, data} -> {:ok, data}
+      {:error, err} -> {:error, {:dump_failed, err, input}}
     end
   end
 
@@ -143,9 +150,10 @@ defmodule SchematicStruct do
     Module.put_attribute(mod, :ss_types, {name, type_for(type, nullable?)})
     if enforce?, do: Module.put_attribute(mod, :ss_enforce_keys, name)
 
-    transform = Module.get_attribute(mod, :ss_transform) || (&to_string/1)
+    transform = Module.get_attribute(mod, :ss_opts)[:transform] || (&to_string/1)
     json = Keyword.get_lazy(opts, :json, fn -> transform.(name) end)
-    schema = Keyword.get_lazy(opts, :schema, fn -> derive_schema(mod, type, nullable?) end)
+    schema_nullable? = nullable? and Module.get_attribute(mod, :ss_opts)[:dump_nullable]
+    schema = Keyword.get_lazy(opts, :schema, fn -> derive_schema(mod, type, schema_nullable?) end)
 
     key = {json, name}
 
@@ -169,7 +177,7 @@ defmodule SchematicStruct do
   defp type_for(type, _), do: quote(do: unquote(type) | nil)
 
   defp derive_schema(mod, type, nullable) do
-    type_match = Module.get_attribute(mod, :ss_type_match)
+    type_match = Module.get_attribute(mod, :ss_opts)[:type_match]
     schema = derive_schema(type_match, type)
     if nullable, do: {:nullable, [], [schema]}, else: schema
   end
