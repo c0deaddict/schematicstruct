@@ -298,6 +298,22 @@ defmodule SchematicStructTest do
              })
   end
 
+  test "map type", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:first, %{})
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert mod.schematic() == schema(mod, %{{"first", :first} => map()})
+  end
+
   test "custom transform function", %{mod: mod} do
     code = """
     defmodule :'#{mod}' do
@@ -446,6 +462,6 @@ defmodule SchematicStructTest do
 
     assert [{^mod, _}] = Code.compile_string(code)
     assert {:ok, s = %{first: 1, second: nil, third: nil}} = mod.parse(%{"first" => 1})
-    assert {:ok,  %{"first" => 1, "second" => nil, "third" => nil}} = mod.dump(s)
+    assert {:ok, %{"first" => 1, "second" => nil, "third" => nil}} = mod.dump(s)
   end
 end

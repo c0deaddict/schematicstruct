@@ -236,6 +236,9 @@ defmodule SchematicStruct do
     end
   end
 
+  # %{} map with undefined keys and values.
+  defp derive_schema(_, {:%{}, _, []}), do: quote(do: map())
+
   # NOTE: tuples types are NOT automatically translated to a schema, since
   # capturing a tuple type here would also match function calls ({:fun, [], []})
   # and potentially other AST constructs.
