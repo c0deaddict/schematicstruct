@@ -464,4 +464,36 @@ defmodule SchematicStructTest do
     assert {:ok, s = %{first: 1, second: nil, third: nil}} = mod.parse(%{"first" => 1})
     assert {:ok, %{"first" => 1, "second" => nil, "third" => nil}} = mod.dump(s)
   end
+
+  test "parse_list with all valid elements", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:first, integer())
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+    assert {:ok, [%{first: 1}, %{first: 2}]} = mod.parse_list([%{"first" => 1}, %{"first" => 2}])
+  end
+
+  test "parse_list with invalid elements", %{mod: mod} do
+    code = """
+    defmodule :'#{mod}' do
+      use SchematicStruct
+
+      schematic_struct do
+        field(:first, integer())
+      end
+    end
+    """
+
+    assert [{^mod, _}] = Code.compile_string(code)
+
+    assert {:error, {:parse_failed, %{"first" => "expected an integer"}, %{"first" => nil}}} =
+             mod.parse_list([%{"first" => nil}, %{"first" => nil}])
+  end
 end

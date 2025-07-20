@@ -17,6 +17,7 @@ defmodule SchematicStruct do
       Module.put_attribute(__MODULE__, :ss_opts, unquote(opts))
 
       def parse(data), do: SchematicStruct.parse(data, __MODULE__)
+      def parse_list(list), do: SchematicStruct.parse_list(list, __MODULE__)
       def dump(data), do: SchematicStruct.dump(data, __MODULE__)
     end
   end
@@ -26,6 +27,23 @@ defmodule SchematicStruct do
       {:error, err} -> {:error, {:parse_failed, err, data}}
       {:ok, struct} -> {:ok, struct}
     end
+  end
+
+  def parse_list(data, module) when is_list(data) do
+    result =
+      Enum.map(data, fn element ->
+        with {:ok, struct} <- parse(element, module) do
+          struct
+        end
+      end)
+
+    first_error =
+      Enum.find(result, fn
+        {:error, _} -> true
+        _ -> false
+      end)
+
+    first_error || {:ok, result}
   end
 
   def dump(input, module) do
